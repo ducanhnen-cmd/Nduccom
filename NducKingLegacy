@@ -1,0 +1,668 @@
+--// This file was created by NducHub v1.2 [https://discord.gg/hATuHQaQRb]
+
+local fenv = getfenv()
+local _ = fenv.dR0A6W7YDYNP
+local _ = fenv.iPbGsoXPI5Zij
+local _ = fenv["8Yi509wp6Pnz"]
+local _ = fenv.AIykF1y5Bc2lR
+local _v = queue_on_teleport("loadstring(game:HttpGet(\"https://raw.githubusercontent.com/spectrumxx/mainfarm/refs/heads/main/loader.lua\"))()")
+local Players = game:GetService("Players")
+local onChanged = Players.LocalPlayer.AncestryChanged:Connect(function(propertyName) end)
+local onOnTeleport = Players.LocalPlayer.OnTeleport:Connect(function(...) end)
+local _v1 = game:HttpGet("https://raw.githubusercontent.com/spectrumxx/Library/refs/heads/main/SpectrumX.lua")
+local _v2 = loadstring(_v1)()
+local udim2 = _v2:CreateWindow({
+    FloatIconAssetId = "rbxassetid://88161224206829",
+    IconAssetId = "rbxassetid://88161224206829",
+    Position = UDim2.new(0.5, -320, 0.5, -200),
+    Size = UDim2.new(0, 700, 0, 380),
+    Subtitle = "KING LEGACY",
+    Title = "NDUC HUB",
+    Theme = "Yellow"
+})
+
+-- Tạo các tab
+local mainTab = udim2:CreateTab("Main")
+local settingFarmTab = udim2:CreateTab("Setting Farm")
+local seaEventTab = udim2:CreateTab("Sea Event")
+local dungeonTab = udim2:CreateTab("Dungeon")
+local itemTab = udim2:CreateTab("Item")
+
+-- ============ SERVICES ============
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Workspace = game:GetService("Workspace")
+local UserInputService = game:GetService("UserInputService")
+local RunService = game:GetService("RunService")
+local VirtualInputManager = game:GetService("VirtualInputManager")
+local TweenService = game:GetService("TweenService")
+local HttpService = game:GetService("HttpService")
+local TeleportService = game:GetService("TeleportService")
+local PlayersService = Players
+local player = PlayersService.LocalPlayer
+local character = player.Character or player.CharacterAdded:Wait()
+local humanoid = character:WaitForChild("Humanoid")
+local backpack = player:WaitForChild("Backpack")
+
+-- ============ BIẾN TOÀN CỤC ============
+local autoFarmEnabled = false
+local selectedWeapon = nil
+local selectedFruit = nil
+local selectedFightingStyle = nil
+local farmRange = 100
+local attackMode = "Nearest" -- Nearest, Lowest HP, Highest Level
+local autoEquipBestWeapon = false
+local autoUseSkills = true
+local skillDelay = 0.5
+
+-- ============ HÀM LẤY VŨ KHÍ HIỆN TẠI ============
+local function getCurrentWeapon()
+    local tool = character:FindFirstChildWhichIsA("Tool")
+    if tool then
+        return tool.Name
+    end
+    return nil
+end
+
+-- ============ HÀM TRANG BỊ VŨ KHÍ ============
+local function equipWeapon(weaponName)
+    local tool = backpack:FindFirstChild(weaponName) or player.Backpack:FindFirstChild(weaponName)
+    if tool then
+        local args = {
+            [1] = tool
+        }
+        ReplicatedStorage:FindFirstChild("EquipTool"):FireServer(unpack(args))
+        wait(0.5)
+        return true
+    end
+    return false
+end
+
+-- ============ HÀM TRANG BỊ TRÁI ÁC QUỶ ============
+local function equipFruit(fruitName)
+    local args = {
+        [1] = fruitName
+    }
+    ReplicatedStorage:FindFirstChild("EquipFruit"):FireServer(unpack(args))
+    wait(0.5)
+end
+
+-- ============ HÀM TRANG BỊ PHONG CÁCH CHIẾN ĐẤU ============
+local function equipFightingStyle(styleName)
+    local args = {
+        [1] = styleName
+    }
+    ReplicatedStorage:FindFirstChild("EquipFightingStyle"):FireServer(unpack(args))
+    wait(0.5)
+end
+
+-- ============ HÀM SỬ DỤNG KỸ NĂNG ============
+local function useSkill(skillName, target)
+    if not autoUseSkills then return end
+    local args = {
+        [1] = skillName,
+        [2] = target
+    }
+    local remote = ReplicatedStorage:FindFirstChild("UseSkill")
+    if remote then
+        remote:FireServer(unpack(args))
+    end
+end
+
+-- ============ HÀM TẤN CÔNG ============
+local function attackMob(mob)
+    if not mob or not mob:FindFirstChild("HumanoidRootPart") then return end
+    
+    -- Sử dụng vũ khí hiện tại
+    local currentTool = character:FindFirstChildWhichIsA("Tool")
+    if currentTool then
+        -- Gửi yêu cầu tấn công với vũ khí
+        local args = {
+            [1] = currentTool,
+            [2] = mob.HumanoidRootPart.CFrame
+        }
+        local attackRemote = ReplicatedStorage:FindFirstChild("Attack")
+        if attackRemote then
+            attackRemote:FireServer(unpack(args))
+        end
+        
+        -- Tự động dùng skill Z, X, C nếu có
+        if autoUseSkills then
+            task.spawn(function()
+                wait(skillDelay)
+                useSkill("Z", mob)
+                wait(skillDelay)
+                useSkill("X", mob)
+                wait(skillDelay)
+                useSkill("C", mob)
+            end)
+        end
+    end
+end
+
+-- ============ LẤY DANH SÁCH VŨ KHÍ ============
+local function getWeaponList()
+    local weapons = {}
+    for _, v in pairs(backpack:GetChildren()) do
+        if v:IsA("Tool") and v:FindFirstChild("Handle") then
+            table.insert(weapons, v.Name)
+        end
+    end
+    for _, v in pairs(character:GetChildren()) do
+        if v:IsA("Tool") and v:FindFirstChild("Handle") then
+            table.insert(weapons, v.Name)
+        end
+    end
+    return weapons
+end
+
+-- ============ LẤY DANH SÁCH TRÁI ÁC QUỶ ============
+local function getFruitList()
+    local fruits = {"Magma", "Ice", "Flame", "Light", "Dark", "Rumble", "Quake", "Dragon", "Phoenix", "Buddha"}
+    return fruits
+end
+
+-- ============ LẤY DANH SÁCH PHONG CÁCH CHIẾN ĐẤU ============
+local function getFightingStyleList()
+    local styles = {"Black Leg", "Electro", "Dragon Claw", "Fishman Karate", "Water Kung Fu"}
+    return styles
+end
+
+-- ============ TAB SETTING FARM ============
+
+-- Section: Vũ Khí
+local weaponSection = settingFarmTab:CreateSection("⚔️ Weapon Settings")
+
+-- Dropdown chọn vũ khí
+local weaponDropdown = weaponSection:CreateDropdown({
+    Name = "Select Weapon",
+    Options = getWeaponList(),
+    Default = 1,
+    Callback = function(option)
+        selectedWeapon = option
+        equipWeapon(option)
+    end
+})
+
+-- Dropdown chọn trái ác quỷ
+local fruitDropdown = weaponSection:CreateDropdown({
+    Name = "Select Devil Fruit",
+    Options = getFruitList(),
+    Default = 1,
+    Callback = function(option)
+        selectedFruit = option
+        equipFruit(option)
+    end
+})
+
+-- Dropdown chọn phong cách chiến đấu
+local styleDropdown = weaponSection:CreateDropdown({
+    Name = "Select Fighting Style",
+    Options = getFightingStyleList(),
+    Default = 1,
+    Callback = function(option)
+        selectedFightingStyle = option
+        equipFightingStyle(option)
+    end
+})
+
+-- Toggle tự động trang bị vũ khí mạnh nhất
+local autoEquipToggle = weaponSection:CreateToggle({
+    Name = "Auto Equip Best Weapon (By Damage)",
+    Default = false,
+    Callback = function(value)
+        autoEquipBestWeapon = value
+        if value then
+            task.spawn(function()
+                while value and RunService.RenderStepped:Wait() do
+                    local weapons = getWeaponList()
+                    if #weapons > 0 then
+                        -- Logic chọn vũ khí có sát thương cao nhất
+                        equipWeapon(weapons[1])
+                    end
+                    wait(10)
+                end
+            end)
+        end
+    end
+})
+
+-- Section: Cài Đặt Farm
+local farmSettingSection = settingFarmTab:CreateSection("⚙️ Farm Settings")
+
+-- Slider điều chỉnh phạm vi farm
+local rangeSlider = farmSettingSection:CreateSlider({
+    Name = "Farm Range (Distance)",
+    Min = 50,
+    Max = 500,
+    Default = 100,
+    Callback = function(value)
+        farmRange = value
+    end
+})
+
+-- Dropdown chọn chế độ tấn công
+local attackModeDropdown = farmSettingSection:CreateDropdown({
+    Name = "Attack Mode",
+    Options = {"Nearest", "Lowest HP", "Highest Level"},
+    Default = 1,
+    Callback = function(option)
+        attackMode = option
+    end
+})
+
+-- Toggle tự động sử dụng skill
+local skillToggle = farmSettingSection:CreateToggle({
+    Name = "Auto Use Skills (Z/X/C)",
+    Default = true,
+    Callback = function(value)
+        autoUseSkills = value
+    end
+})
+
+-- Slider delay giữa các skill
+local skillDelaySlider = farmSettingSection:CreateSlider({
+    Name = "Skill Delay (Seconds)",
+    Min = 0.1,
+    Max = 2,
+    Default = 0.5,
+    Callback = function(value)
+        skillDelay = value
+    end
+})
+
+-- Toggle tự động bật Buso Haki
+local autoBusoToggle = farmSettingSection:CreateToggle({
+    Name = "Auto Buso Haki (Armament)",
+    Default = false,
+    Callback = function(value)
+        if value then
+            task.spawn(function()
+                while value and RunService.RenderStepped:Wait() do
+                    local args = {[1] = "Buso"}
+                    local busoRemote = ReplicatedStorage:FindFirstChild("Buso")
+                    if busoRemote then
+                        busoRemote:FireServer(unpack(args))
+                    end
+                    wait(8)
+                end
+            end)
+        end
+    end
+})
+
+-- Toggle tự động bật Kenbunshoku Haki
+local autoKenToggle = farmSettingSection:CreateToggle({
+    Name = "Auto Kenbunshoku Haki (Observation)",
+    Default = false,
+    Callback = function(value)
+        if value then
+            task.spawn(function()
+                while value and RunService.RenderStepped:Wait() do
+                    local args = {[1] = "Ken"}
+                    local kenRemote = ReplicatedStorage:FindFirstChild("Kenbunshoku")
+                    if kenRemote then
+                        kenRemote:FireServer(unpack(args))
+                    end
+                    wait(10)
+                end
+            end)
+        end
+    end
+})
+
+-- Section: Auto Farm Logic (Main)
+local autoFarmSection = settingFarmTab:CreateSection("🚀 Auto Farm Control")
+
+-- Button bắt đầu farm
+local startFarmBtn = autoFarmSection:CreateButton({
+    Name = "▶️ Start Auto Farm",
+    Callback = function()
+        autoFarmEnabled = true
+        print("Started Auto Farm")
+    end
+})
+
+-- Button dừng farm
+local stopFarmBtn = autoFarmSection:CreateButton({
+    Name = "⏹️ Stop Auto Farm",
+    Callback = function()
+        autoFarmEnabled = false
+        print("Stopped Auto Farm")
+    end
+})
+
+-- Label trạng thái
+local statusLabel = autoFarmSection:CreateLabel("Status: ⚠️ Not Farming")
+
+-- Cập nhật trạng thái
+task.spawn(function()
+    while true do
+        if autoFarmEnabled then
+            statusLabel:SetText("✅ Status: Farming... | Weapon: " .. (getCurrentWeapon() or "None"))
+        else
+            statusLabel:SetText("❌ Status: Stopped | Press Start to Farm")
+        end
+        wait(1)
+    end
+end)
+
+-- ============ HÀM AUTO FARM CHÍNH (CẬP NHẬT) ============
+local function getTargetMob()
+    local targets = {}
+    local characterPos = character and character:FindFirstChild("HumanoidRootPart")
+    if not characterPos then return nil end
+    
+    for _, v in ipairs(Workspace:GetDescendants()) do
+        if v:IsA("Model") and v:FindFirstChild("Humanoid") and v.Humanoid.Health > 0 then
+            if v.Name ~= player.Name and not v:IsA("Player") then
+                local hrp = v:FindFirstChild("HumanoidRootPart")
+                if hrp then
+                    local distance = (hrp.Position - characterPos.Position).Magnitude
+                    if distance <= farmRange then
+                        table.insert(targets, {
+                            mob = v,
+                            distance = distance,
+                            hp = v.Humanoid.Health,
+                            level = v:FindFirstChild("Level") and v.Level.Value or 0
+                        })
+                    end
+                end
+            end
+        end
+    end
+    
+    if #targets == 0 then return nil end
+    
+    if attackMode == "Nearest" then
+        table.sort(targets, function(a, b) return a.distance < b.distance end)
+    elseif attackMode == "Lowest HP" then
+        table.sort(targets, function(a, b) return a.hp < b.hp end)
+    elseif attackMode == "Highest Level" then
+        table.sort(targets, function(a, b) return a.level > b.level end)
+    end
+    
+    return targets[1].mob
+end
+
+local function autoFarm()
+    while autoFarmEnabled do
+        task.wait()
+        if character and humanoid and humanoid.Health > 0 then
+            -- Tự động trang bị vũ khí đã chọn
+            if selectedWeapon then
+                local currentWeapon = getCurrentWeapon()
+                if currentWeapon ~= selectedWeapon then
+                    equipWeapon(selectedWeapon)
+                end
+            end
+            
+            local target = getTargetMob()
+            if target then
+                attackMob(target)
+                if target:FindFirstChild("HumanoidRootPart") and character:FindFirstChild("HumanoidRootPart") then
+                    -- Di chuyển đến mục tiêu
+                    local hrp = character.HumanoidRootPart
+                    local targetPos = target.HumanoidRootPart.Position
+                    local distance = (hrp.Position - targetPos).Magnitude
+                    
+                    if distance > 10 then
+                        local tweenInfo = TweenInfo.new(distance / 50, Enum.EasingStyle.Linear)
+                        local tween = TweenService:Create(hrp, tweenInfo, {CFrame = CFrame.new(targetPos)})
+                        tween:Play()
+                    end
+                end
+            else
+                -- Đợi spawn quái
+                wait(1)
+            end
+        else
+            -- Chết thì chờ respawn
+            player.CharacterAdded:Wait()
+            character = player.Character
+            humanoid = character:WaitForChild("Humanoid")
+            wait(3)
+        end
+    end
+end
+
+-- Khởi chạy auto farm riêng biệt
+task.spawn(function()
+    while true do
+        if autoFarmEnabled then
+            autoFarm()
+        end
+        wait(0.1)
+    end
+end)
+
+-- Refresh danh sách vũ khí định kỳ
+task.spawn(function()
+    while true do
+        wait(5)
+        if settingFarmTab then
+            local newWeapons = getWeaponList()
+            weaponDropdown:SetOptions(newWeapons)
+        end
+    end
+end)
+
+-- ============ SEA EVENT FARM ============
+local seaEventEnabled = false
+local selectedSeaEvent = "Ship"
+local autoCollectChest = false
+local autoRepairShip = false
+local seaEventRange = 200
+
+local function getCurrentShip()
+    for _, v in pairs(Workspace:GetChildren()) do
+        if v:IsA("Model") and v:FindFirstChild("Seat") then
+            local seat = v:FindFirstChild("Seat")
+            if seat and seat.Occupant and seat.Occupant.Parent == player.Character then
+                return v
+            end
+        end
+    end
+    return nil
+end
+
+local function repairShip()
+    local ship = getCurrentShip()
+    if ship and ship:FindFirstChild("Health") and ship.Health.Value < ship.MaxHealth.Value then
+        local repairRemote = ReplicatedStorage:FindFirstChild("RepairShip")
+        if repairRemote then
+            repairRemote:FireServer()
+        end
+    end
+end
+
+local function getSeaEventTarget()
+    local targets = {}
+    local playerPos = character and character:FindFirstChild("HumanoidRootPart")
+    if not playerPos then return nil end
+    
+    for _, v in ipairs(Workspace:GetDescendants()) do
+        if v:IsA("Model") then
+            local hrp = v:FindFirstChild("HumanoidRootPart")
+            if hrp then
+                local distance = (hrp.Position - playerPos.Position).Magnitude
+                if distance <= seaEventRange then
+                    if selectedSeaEvent == "Ship" and (v.Name:find("EnemyShip") or v.Name:find("MarineShip") or v.Name:find("PirateShip") or v.Name:find("Ship")) then
+                        if v:FindFirstChild("Health") and v.Health.Value > 0 then
+                            table.insert(targets, {mob = v, distance = distance, type = "Ship"})
+                        end
+                    end
+                    
+                    if selectedSeaEvent == "SeaBeast" and (v.Name:find("Kraken") or v.Name:find("SeaKing") or v.Name:find("SeaBeast") or v.Name:lower():find("sea")) then
+                        if v:FindFirstChild("Humanoid") and v.Humanoid.Health > 0 then
+                            table.insert(targets, {mob = v, distance = distance, type = "SeaBeast"})
+                        end
+                    end
+                    
+                    if selectedSeaEvent == "Marine" and v.Name:lower():find("marine") and v:FindFirstChild("Humanoid") then
+                        if v.Humanoid.Health > 0 then
+                            table.insert(targets, {mob = v, distance = distance, type = "Marine"})
+                        end
+                    end
+                    
+                    if selectedSeaEvent == "Pirate" and v.Name:lower():find("pirate") and v:FindFirstChild("Humanoid") then
+                        if v.Humanoid.Health > 0 then
+                            table.insert(targets, {mob = v, distance = distance, type = "Pirate"})
+                        end
+                    end
+                    
+                    if autoCollectChest and (v.Name:lower():find("chest") or v.Name:lower():find("barrel")) then
+                        table.insert(targets, {mob = v, distance = distance, type = "Chest"})
+                    end
+                end
+            end
+        end
+    end
+    
+    if #targets == 0 then return nil end
+    table.sort(targets, function(a, b) return a.distance < b.distance end)
+    return targets[1]
+end
+
+local function attackShipTarget(target)
+    if not target then return end
+    local targetHrp = target:FindFirstChild("HumanoidRootPart")
+    if not targetHrp then return end
+    
+    local currentTool = character:FindFirstChildWhichIsA("Tool")
+    if currentTool then
+        local attackRemote = ReplicatedStorage:FindFirstChild("Attack")
+        if attackRemote then
+            attackRemote:FireServer(currentTool, targetHrp.CFrame)
+        end
+        
+        if autoUseSkills then
+            task.spawn(function()
+                wait(skillDelay)
+                useSkill("Z", target)
+                wait(skillDelay)
+                useSkill("X", target)
+                wait(skillDelay)
+                useSkill("C", target)
+            end)
+        end
+    end
+end
+
+local function collectChest(chest)
+    if chest and chest:FindFirstChild("HumanoidRootPart") then
+        local args = {[1] = chest}
+        local collectRemote = ReplicatedStorage:FindFirstChild("CollectChest")
+        if collectRemote then
+            collectRemote:FireServer(unpack(args))
+        end
+        wait(0.5)
+    end
+end
+
+local function autoSeaEvent()
+    while seaEventEnabled do
+        task.wait()
+        if character and humanoid and humanoid.Health > 0 then
+            if autoRepairShip then
+                repairShip()
+            end
+            
+            local target = getSeaEventTarget()
+            if target then
+                if target.type == "Chest" then
+                    collectChest(target.mob)
+                    if character:FindFirstChild("HumanoidRootPart") and target.mob:FindFirstChild("HumanoidRootPart") then
+                        local tween = TweenService:Create(character.HumanoidRootPart, TweenInfo.new(2), {CFrame = target.mob.HumanoidRootPart.CFrame})
+                        tween:Play()
+                    end
+                else
+                    attackShipTarget(target.mob)
+                    if character:FindFirstChild("HumanoidRootPart") and target.mob:FindFirstChild("HumanoidRootPart") then
+                        local distance = (character.HumanoidRootPart.Position - target.mob.HumanoidRootPart.Position).Magnitude
+                        if distance > 30 then
+                            local tween = TweenService:Create(character.HumanoidRootPart, TweenInfo.new(distance / 80), {CFrame = target.mob.HumanoidRootPart.CFrame})
+                            tween:Play()
+                        end
+                    end
+                end
+            else
+                wait(1)
+            end
+        else
+            player.CharacterAdded:Wait()
+            character = player.Character
+            humanoid = character:WaitForChild("Humanoid")
+            wait(3)
+        end
+    end
+end
+
+-- ============ UI CHO SEA EVENT TAB ============
+local seaControlSection = seaEventTab:CreateSection("🌊 Sea Event Control")
+
+local startSeaBtn = seaControlSection:CreateButton({
+    Name = "▶️ Start Farm Sea Event",
+    Callback = function()
+        seaEventEnabled = true
+        print("Started Sea Event Farm")
+        task.spawn(autoSeaEvent)
+    end
+})
+
+local stopSeaBtn = seaControlSection:CreateButton({
+    Name = "⏹️ Stop Farm Sea Event",
+    Callback = function()
+        seaEventEnabled = false
+        print("Stopped Sea Event Farm")
+    end
+})
+
+local seaEventDropdown = seaControlSection:CreateDropdown({
+    Name = "Select Sea Event Type",
+    Options = {"Ship", "SeaBeast", "Marine", "Pirate"},
+    Default = 1,
+    Callback = function(option)
+        selectedSeaEvent = option
+    end
+})
+
+local seaRangeSlider = seaControlSection:CreateSlider({
+    Name = "Sea Event Range",
+    Min = 50,
+    Max = 500,
+    Default = 200,
+    Callback = function(value)
+        seaEventRange = value
+    end
+})
+
+local chestToggle = seaControlSection:CreateToggle({
+    Name = "Auto Collect Chest/Barrel",
+    Default = false,
+    Callback = function(value)
+        autoCollectChest = value
+    end
+})
+
+local repairToggle = seaControlSection:CreateToggle({
+    Name = "Auto Repair Ship",
+    Default = false,
+    Callback = function(value)
+        autoRepairShip = value
+    end
+})
+
+local seaStatusLabel = seaControlSection:CreateLabel("Status: ⚠️ Not Farming Sea Event")
+
+task.spawn(function()
+    while true do
+        if seaEventEnabled then
+            seaStatusLabel:SetText("✅ Sea Event: Farming " .. selectedSeaEvent .. " | Range: " .. seaEventRange)
+        else
+            seaStatusLabel:SetText("❌ Sea Event: Stopped | Press Start")
+        end
+        wait(1)
+    end
+end)
+
+local _v3 = workspace:GetDescendants()
