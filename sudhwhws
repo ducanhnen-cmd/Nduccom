@@ -1,0 +1,804 @@
+-- NducHub | Vision 1.3 - Blue Edition (Full)
+-- 500 x 320, dark + blue, 2-column main, farm boss inside main tab
+
+local TweenService = game:GetService("TweenService")
+local UserInputService = game:GetService("UserInputService")
+local RunService = game:GetService("RunService")
+local CoreGui = game:GetService("CoreGui")
+local Players = game:GetService("Players")
+local Workspace = game:GetService("Workspace")
+local LocalPlayer = Players.LocalPlayer
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+
+-- cleanup
+if CoreGui:FindFirstChild("NducHubPreview") then
+    CoreGui.NducHubPreview:Destroy()
+end
+
+-- colors (BLUE THEME)
+local BG = Color3.fromRGB(12,12,12)
+local PANEL = Color3.fromRGB(22,22,22)
+local PANEL_ALT = Color3.fromRGB(28,28,28)
+local ACCENT = Color3.fromRGB(0,150,255)
+local TXT = Color3.fromRGB(230,230,230)
+local MUTED = Color3.fromRGB(160,160,160)
+local TOGGLE_OFF = Color3.fromRGB(80,80,80)
+local DANGER = Color3.fromRGB(220,50,50)
+local SUCCESS = Color3.fromRGB(76,175,80)
+local SEA1_COLOR = Color3.fromRGB(66,133,244)
+local SEA2_COLOR = Color3.fromRGB(52,168,83)
+local SEA3_COLOR = Color3.fromRGB(234,67,53)
+local INFO_COLOR = Color3.fromRGB(255,193,7)
+
+-- helper
+local function new(class, props)
+    local inst = Instance.new(class)
+    if props then
+        for k,v in pairs(props) do
+            if k == "Parent" then inst.Parent = v else inst[k] = v end
+        end
+    end
+    return inst
+end
+
+-- teleport
+local function teleportTo(pos)
+    local hrp = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+    if hrp then
+        hrp.CFrame = CFrame.new(pos)
+        print("[Teleport] Teleported to:", pos)
+    end
+end
+
+-- ========== BOSS SYSTEM ==========
+local KatakuriNames = {"Katakuri", "Dogtooth", "Charlotte Katakuri", "Katakuri Boss"}
+local EliteNames = {"Elite", "Elite Boss", "Boss Elite", "Thunder God", "Elite Hunter"}
+
+local function findKatakuri()
+    for _, obj in ipairs(Workspace:GetDescendants()) do
+        local name = obj.Name:lower()
+        for _, katName in ipairs(KatakuriNames) do
+            if name:find(katName:lower()) and (obj:IsA("Model") or obj:IsA("Part")) then
+                local hrp = obj:FindFirstChild("HumanoidRootPart") or obj:FindFirstChild("Head")
+                if hrp then return {Object = obj, Position = hrp.Position, Humanoid = obj:FindFirstChild("Humanoid"), CFrame = hrp.CFrame} end
+            end
+        end
+    end
+    return nil
+end
+
+local function findElite()
+    for _, obj in ipairs(Workspace:GetDescendants()) do
+        local name = obj.Name:lower()
+        for _, eliteName in ipairs(EliteNames) do
+            if name:find(eliteName:lower()) and (obj:IsA("Model") or obj:IsA("Part")) then
+                local hrp = obj:FindFirstChild("HumanoidRootPart") or obj:FindFirstChild("Head")
+                if hrp then return {Object = obj, Position = hrp.Position, Humanoid = obj:FindFirstChild("Humanoid"), CFrame = hrp.CFrame} end
+            end
+        end
+    end
+    return nil
+end
+
+local function scanForBosses()
+    local kata = findKatakuri()
+    local elite = findElite()
+    if kata then print("[Boss] Katakuri at:", kata.Position) end
+    if elite then print("[Boss] Elite at:", elite.Position) end
+    return kata, elite
+end
+
+local function attackBoss(target)
+    if not target or not target.Humanoid or target.Humanoid.Health <= 0 then return end
+    local remote = ReplicatedStorage:FindFirstChild("Attack") or ReplicatedStorage:FindFirstChild("Damage")
+    if remote then remote:FireServer(target.Object) end
+end
+
+-- ========== FARM POSITION ==========
+local farmRange = 15
+local farmPosition = "Above"
+
+local function getDesiredPosition(targetPos, targetCFrame)
+    if farmPosition == "Behind" and targetCFrame then
+        return targetPos + targetCFrame.LookVector * -farmRange
+    elseif farmPosition == "Under" then
+        return Vector3.new(targetPos.X, targetPos.Y - farmRange, targetPos.Z)
+    else
+        local hrp = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+        if hrp then
+            local dir = (targetPos - hrp.Position).Unit
+            return targetPos - dir * farmRange
+        end
+        return targetPos + Vector3.new(farmRange, 0, farmRange)
+    end
+end
+
+local function moveToTarget(target)
+    local hrp = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+    if not hrp then return false end
+    local desired = getDesiredPosition(target.Position, target.CFrame)
+    if (hrp.Position - desired).Magnitude > 5 then
+        hrp.CFrame = CFrame.new(desired)
+        return false
+    end
+    return true
+end
+
+-- ========== FARM BOSS STATE ==========
+local isFarmingBoss = false
+local currentBossTarget = nil
+local bossFarmType = nil
+local bossFarmRange = 100
+local bossFarmPosition = "Above"
+
+local function getBossDesiredPosition(targetPos, targetCFrame)
+    if bossFarmPosition == "Behind" and targetCFrame then
+        return targetPos + targetCFrame.LookVector * -bossFarmRange
+    elseif bossFarmPosition == "Under" then
+        return Vector3.new(targetPos.X, targetPos.Y - bossFarmRange, targetPos.Z)
+    else
+        local hrp = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+        if hrp then
+            local dir = (targetPos - hrp.Position).Unit
+            return targetPos - dir * bossFarmRange
+        end
+        return targetPos + Vector3.new(bossFarmRange, 0, bossFarmRange)
+    end
+end
+
+local function moveToBossTarget(target)
+    local hrp = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+    if not hrp then return false end
+    local desired = getBossDesiredPosition(target.Position, target.CFrame)
+    if (hrp.Position - desired).Magnitude > 5 then
+        hrp.CFrame = CFrame.new(desired)
+        return false
+    end
+    return true
+end
+
+local function startBossFarming(type)
+    if isFarmingBoss then return end
+    isFarmingBoss = true
+    bossFarmType = type
+    print("[Farm Boss] Starting:", type)
+    task.spawn(function()
+        while isFarmingBoss do
+            local target = (bossFarmType == "katakuri") and findKatakuri() or findElite()
+            if target then
+                currentBossTarget = target
+                if moveToBossTarget(target) then
+                    attackBoss(target)
+                    wait(0.3)
+                else
+                    wait(0.5)
+                end
+            else
+                wait(5)
+            end
+        end
+    end)
+end
+
+local function stopBossFarming()
+    isFarmingBoss = false
+    currentBossTarget = nil
+    print("[Farm Boss] Stopped")
+end
+
+-- ========== MAP SCAN FOR TELEPORT ==========
+local IslandList = {}
+local function scanMap()
+    IslandList = {}
+    for _, obj in ipairs(Workspace:GetDescendants()) do
+        if obj:IsA("BasePart") and obj.Name ~= "" and obj.Size.X > 50 and obj.Size.Z > 50 then
+            local pos = obj.Position
+            local absX, absZ = math.abs(pos.X), math.abs(pos.Z)
+            local sea = (absX < 5000 and absZ < 4000) and "Sea 1" or (absX >= 5000 and absX < 10000 and absZ < 5000) and "Sea 2" or (absX >= 10000 or absZ >= 5000) and "Sea 3" or "Unknown"
+            table.insert(IslandList, {Name = obj.Name, Position = pos, Sea = sea})
+        end
+    end
+    print("[Map] Found", #IslandList, "islands")
+end
+
+local function getCurrentPosition()
+    local hrp = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+    return hrp and hrp.Position or Vector3.new(0, 0, 0)
+end
+
+-- ========== UI COMPONENTS ==========
+local function makeRow(parent, height)
+    local row = new("TextButton", {Parent = parent, Size = UDim2.new(1,0,0,height or 46), BackgroundColor3 = Color3.fromRGB(38,38,38), AutoButtonColor = false, Text = ""})
+    new("UICorner", {Parent = row, CornerRadius = UDim.new(0,8)})
+    return row
+end
+
+local function makeButton(parent, text, color, cb)
+    local row = makeRow(parent, 42)
+    row.BackgroundColor3 = color or ACCENT
+    local label = new("TextLabel", {Parent = row, Text = text, Font = Enum.Font.GothamBold, TextSize = 13, TextColor3 = Color3.fromRGB(20,20,20), BackgroundTransparency = 1, Size = UDim2.new(1,0,1,0), TextXAlignment = Enum.TextXAlignment.Center, TextYAlignment = Enum.TextYAlignment.Center})
+    row.MouseButton1Click:Connect(function() if cb then pcall(cb) end end)
+    return row
+end
+
+local function makeToggle(parent, text, default, cb)
+    local row = makeRow(parent, 48)
+    local label = new("TextLabel", {Parent = row, Text = text, Font = Enum.Font.Gotham, TextSize = 13, TextColor3 = TXT, BackgroundTransparency = 1, Position = UDim2.new(0,12,0,0), Size = UDim2.new(1,-96,1,0), TextXAlignment = Enum.TextXAlignment.Left, TextYAlignment = Enum.TextYAlignment.Center})
+    local sw = new("Frame", {Parent = row, Size = UDim2.new(0,44,0,24), Position = UDim2.new(1,-56,0.5,-12), BackgroundColor3 = default and ACCENT or TOGGLE_OFF})
+    new("UICorner", {Parent = sw, CornerRadius = UDim.new(1,0)})
+    local knob = new("Frame", {Parent = sw, Size = UDim2.new(0,18,0,18), Position = default and UDim2.new(1,-20,0.5,-9) or UDim2.new(0,4,0.5,-9), BackgroundColor3 = Color3.fromRGB(245,245,245)})
+    new("UICorner", {Parent = knob, CornerRadius = UDim.new(1,0)})
+    local toggled = default
+    local function setState(v)
+        toggled = v
+        sw.BackgroundColor3 = toggled and ACCENT or TOGGLE_OFF
+        knob.Position = toggled and UDim2.new(1,-20,0.5,-9) or UDim2.new(0,4,0.5,-9)
+        if cb then pcall(cb, toggled) end
+    end
+    row.MouseButton1Click:Connect(function() setState(not toggled) end)
+    return {Set = setState, Get = function() return toggled end}
+end
+
+local function makeSlider(parent, text, minv, maxv, default, cb)
+    local row = makeRow(parent, 64)
+    local label = new("TextLabel", {Parent = row, Text = text, Font = Enum.Font.Gotham, TextSize = 13, TextColor3 = TXT, BackgroundTransparency = 1, Position = UDim2.new(0,12,0,6), Size = UDim2.new(1,-24,0,18), TextXAlignment = Enum.TextXAlignment.Left})
+    local bar = new("Frame", {Parent = row, Size = UDim2.new(1,-120,0,12), Position = UDim2.new(0,12,0,34), BackgroundColor3 = Color3.fromRGB(60,60,60)})
+    new("UICorner", {Parent = bar, CornerRadius = UDim.new(0,6)})
+    local frac = math.clamp((default-minv)/(maxv-minv),0,1)
+    local fill = new("Frame", {Parent = bar, Size = UDim2.new(frac,0,1,0), BackgroundColor3 = ACCENT})
+    new("UICorner", {Parent = fill, CornerRadius = UDim.new(0,6)})
+    local knob = new("Frame", {Parent = bar, Size = UDim2.new(0,14,0,14), Position = UDim2.new(frac,-7,0.5,-7), BackgroundColor3 = Color3.fromRGB(245,245,245)})
+    new("UICorner", {Parent = knob, CornerRadius = UDim.new(1,0)})
+    local display = new("TextLabel", {Parent = row, Text = tostring(default), Font = Enum.Font.GothamBold, TextSize = 13, TextColor3 = TXT, BackgroundTransparency = 1, Size = UDim2.new(0,72,0,20), Position = UDim2.new(1,-92,0,22)})
+    local dragging = false
+    local function update(x)
+        local f = math.clamp((x - bar.AbsolutePosition.X) / bar.AbsoluteSize.X, 0, 1)
+        local val = math.floor(minv + (maxv - minv) * f + 0.5)
+        fill.Size = UDim2.new(f,0,1,0)
+        knob.Position = UDim2.new(f,-7,0.5,-7)
+        display.Text = tostring(val)
+        if cb then pcall(cb, val) end
+    end
+    knob.InputBegan:Connect(function(i) if i.UserInputType == Enum.UserInputType.MouseButton1 then dragging = true end end)
+    knob.InputEnded:Connect(function() dragging = false end)
+    bar.InputBegan:Connect(function(i) if i.UserInputType == Enum.UserInputType.MouseButton1 then update(i.Position.X); dragging = true end end)
+    UserInputService.InputChanged:Connect(function(i) if dragging and i.UserInputType == Enum.UserInputType.MouseMovement then update(i.Position.X) end end)
+    return {Row = row}
+end
+
+local function makeDropdown(parent, text, options, default, cb)
+    local row = makeRow(parent, 56)
+    local label = new("TextLabel", {Parent = row, Text = text, Font = Enum.Font.Gotham, TextSize = 13, TextColor3 = TXT, BackgroundTransparency = 1, Position = UDim2.new(0,12,0,8), Size = UDim2.new(1,-24,0,18), TextXAlignment = Enum.TextXAlignment.Left})
+    local btn = new("TextButton", {Parent = row, Size = UDim2.new(1,-24,0,30), Position = UDim2.new(0,12,0,24), BackgroundColor3 = Color3.fromRGB(55,55,55), Text = default or options[1], Font = Enum.Font.Gotham, TextSize = 13, TextColor3 = TXT, AutoButtonColor = false})
+    new("UICorner", {Parent = btn, CornerRadius = UDim.new(0,8)})
+    local menu = new("ScrollingFrame", {Parent = row, Size = UDim2.new(1,-24,0,120), Position = UDim2.new(0,12,0,54), BackgroundColor3 = Color3.fromRGB(45,45,45), Visible = false, ZIndex = 10, ScrollBarThickness = 4, ClipsDescendants = true})
+    new("UICorner", {Parent = menu, CornerRadius = UDim.new(0,8)})
+    local menuList = new("UIListLayout", {Parent = menu, Padding = UDim.new(0,2)})
+    for _, opt in ipairs(options) do
+        local optBtn = new("TextButton", {Parent = menu, Size = UDim2.new(1,-8,0,28), BackgroundColor3 = Color3.fromRGB(55,55,55), BackgroundTransparency = 0.5, Text = opt, Font = Enum.Font.Gotham, TextSize = 13, TextColor3 = TXT, AutoButtonColor = false, ZIndex = 10})
+        new("UICorner", {Parent = optBtn, CornerRadius = UDim.new(0,6)})
+        optBtn.MouseButton1Click:Connect(function()
+            btn.Text = opt
+            menu.Visible = false
+            if cb then pcall(cb, opt) end
+        end)
+        optBtn.MouseEnter:Connect(function() optBtn.BackgroundColor3 = ACCENT optBtn.TextColor3 = Color3.fromRGB(20,20,20) end)
+        optBtn.MouseLeave:Connect(function() optBtn.BackgroundColor3 = Color3.fromRGB(55,55,55) optBtn.TextColor3 = TXT end)
+    end
+    menu.Size = UDim2.new(1,-24,0,math.min(#options * 30, 120))
+    btn.MouseButton1Click:Connect(function() menu.Visible = not menu.Visible if menu.Visible then menu.ZIndex = 20 end end)
+    return {Row = row, Button = btn}
+end
+
+local function makePanel(parent, x)
+    local panel = new("Frame", {Parent = parent, Size = UDim2.new(0.5, -12, 1, -24), Position = UDim2.new(x, x==0 and 12 or 6, 0,12), BackgroundColor3 = PANEL, BorderSizePixel = 0})
+    new("UICorner", {Parent = panel, CornerRadius = UDim.new(0,10)})
+    return panel
+end
+
+-- ========== ROOT GUI ==========
+local screenGui = new("ScreenGui", {Name = "NducHubPreview", Parent = CoreGui, ResetOnSpawn = false})
+screenGui.IgnoreGuiInset = true
+
+local toggleButton = new("ImageButton", {Parent = screenGui, Name = "ToggleButton", Size = UDim2.new(0,50,0,50), Position = UDim2.new(0,20,0.5,-25), BackgroundColor3 = ACCENT, Image = "rbxassetid://88161224206829", ScaleType = Enum.ScaleType.Fit, BorderSizePixel = 0})
+new("UICorner", {Parent = toggleButton, CornerRadius = UDim.new(1,0)})
+
+local window = new("Frame", {Name = "Window", Parent = screenGui, Size = UDim2.fromOffset(500,320), Position = UDim2.new(0.5,-250,0.5,-160), BackgroundColor3 = BG, BorderSizePixel = 0, ClipsDescendants = true, Visible = true})
+new("UICorner", {Parent = window, CornerRadius = UDim.new(0,12)})
+
+local header = new("Frame", {Parent = window, Size = UDim2.new(1,0,0,48), Position = UDim2.new(0,0,0,0), BackgroundColor3 = PANEL_ALT, BorderSizePixel = 0})
+new("UICorner", {Parent = header, CornerRadius = UDim.new(0,12)})
+new("TextLabel", {Parent = header, Text = "Nduc Hub", Font = Enum.Font.GothamBold, TextSize = 18, TextColor3 = ACCENT, BackgroundTransparency = 1, Position = UDim2.new(0,12,0,6), Size = UDim2.new(0.7,0,0,20), TextXAlignment = Enum.TextXAlignment.Left})
+new("TextLabel", {Parent = header, Text = "Vision 1.3", Font = Enum.Font.Gotham, TextSize = 12, TextColor3 = MUTED, BackgroundTransparency = 1, Position = UDim2.new(0,12,0,26), Size = UDim2.new(0.7,0,0,16), TextXAlignment = Enum.TextXAlignment.Left})
+
+local btnCollapse = new("TextButton", {Parent = header, Size = UDim2.new(0,44,0,30), Position = UDim2.new(1,-56,0.5,-15), BackgroundColor3 = PANEL, Text = "-", Font = Enum.Font.GothamBold, TextSize = 20, TextColor3 = TXT, AutoButtonColor = false})
+new("UICorner", {Parent = btnCollapse, CornerRadius = UDim.new(0,8)})
+
+local tabBar = new("Frame", {Parent = window, Size = UDim2.new(1,0,0,44), Position = UDim2.new(0,0,0,48), BackgroundColor3 = PANEL, BorderSizePixel = 0})
+new("UICorner", {Parent = tabBar, CornerRadius = UDim.new(0,8)})
+
+local tabScroller = new("ScrollingFrame", {Parent = tabBar, Size = UDim2.new(1,-24,1,0), Position = UDim2.new(0,12,0,0), BackgroundTransparency = 1, ScrollBarThickness = 6, CanvasSize = UDim2.new(0,0,0,0), AutomaticCanvasSize = Enum.AutomaticSize.X, HorizontalScrollBarInset = Enum.ScrollBarInset.Always})
+local tabListLayout = new("UIListLayout", {Parent = tabScroller, FillDirection = Enum.FillDirection.Horizontal, Padding = UDim.new(0,8), HorizontalAlignment = Enum.HorizontalAlignment.Left})
+
+local content = new("Frame", {Parent = window, Size = UDim2.new(1,0,1,-(48+44)), Position = UDim2.new(0,0,0,48+44), BackgroundTransparency = 1})
+
+-- ========== TABS ==========
+local TabNames = {"Info", "Status Server", "Main", "Setting", "Fruit and Raid", "Sea Event", "Race", "Shop", "Player", "Teleport"}
+local TabButtons, TabPages = {}, {}
+local currentTab = nil
+
+local function setActiveTab(name)
+    currentTab = name
+    for k,btn in pairs(TabButtons) do
+        if k == name then
+            btn.BackgroundColor3 = ACCENT
+            btn.TextColor3 = Color3.fromRGB(20,20,20)
+        else
+            btn.BackgroundColor3 = Color3.fromRGB(35,35,35)
+            btn.TextColor3 = TXT
+        end
+    end
+    for k,page in pairs(TabPages) do
+        page.Visible = (k == name)
+    end
+end
+
+for _, name in ipairs(TabNames) do
+    local btn = new("TextButton", {Parent = tabScroller, Size = UDim2.new(0,100,0,32), BackgroundColor3 = Color3.fromRGB(35,35,35), Text = name, Font = Enum.Font.GothamSemibold, TextSize = 13, TextColor3 = TXT, AutoButtonColor = false})
+    new("UICorner", {Parent = btn, CornerRadius = UDim.new(0,8)})
+    TabButtons[name] = btn
+    local page = new("Frame", {Parent = content, Name = name, Size = UDim2.new(1,0,1,0), BackgroundTransparency = 1, Visible = false})
+    TabPages[name] = page
+    btn.MouseButton1Click:Connect(function() setActiveTab(name) end)
+end
+
+-- ========== TAB INFO ==========
+local infoPage = TabPages["Info"]
+new("TextLabel", {Parent = infoPage, Text = "Welcome to Nduc Hub\nVersion: Vision 1.3\n\nDeveloped by: Nduc\n\nUse the tabs above to navigate\nthrough different features.\n\nDiscord: discord.gg/nduchub", Font = Enum.Font.Gotham, TextSize = 14, TextColor3 = TXT, BackgroundTransparency = 1, Position = UDim2.new(0,20,0,20), Size = UDim2.new(1,-40,1,-40), TextXAlignment = Enum.TextXAlignment.Left, TextYAlignment = Enum.TextYAlignment.Top, LineHeight = 1.2})
+
+-- ========== TAB STATUS SERVER ==========
+local serverPage = TabPages["Status Server"]
+local serverPanel = new("Frame", {Parent = serverPage, Size = UDim2.new(1,-24,1,-24), Position = UDim2.new(0,12,0,12), BackgroundColor3 = PANEL, BorderSizePixel = 0})
+new("UICorner", {Parent = serverPanel, CornerRadius = UDim.new(0,10)})
+local serverScroll = new("ScrollingFrame", {Parent = serverPanel, Size = UDim2.new(1,-24,1,-24), Position = UDim2.new(0,12,0,12), BackgroundTransparency = 1, ScrollBarThickness = 6, CanvasSize = UDim2.new(0,0,0,0)})
+serverScroll.AutomaticCanvasSize = Enum.AutomaticSize.Y
+local serverList = new("UIListLayout", {Parent = serverScroll, Padding = UDim.new(0,8)})
+
+local uptimeRow = makeRow(serverScroll, 38)
+local uptimeLabel = new("TextLabel", {Parent = uptimeRow, Text = "⏱️ Uptime: 00:00:00", Font = Enum.Font.Gotham, TextSize = 13, TextColor3 = TXT, BackgroundTransparency = 1, Position = UDim2.new(0,12,0,0), Size = UDim2.new(1,-24,1,0), TextXAlignment = Enum.TextXAlignment.Left, TextYAlignment = Enum.TextYAlignment.Center})
+
+local playersRow = makeRow(serverScroll, 38)
+local playersLabel = new("TextLabel", {Parent = playersRow, Text = "👥 Players: 0/0", Font = Enum.Font.Gotham, TextSize = 13, TextColor3 = TXT, BackgroundTransparency = 1, Position = UDim2.new(0,12,0,0), Size = UDim2.new(1,-24,1,0), TextXAlignment = Enum.TextXAlignment.Left, TextYAlignment = Enum.TextYAlignment.Center})
+
+local pingRow = makeRow(serverScroll, 38)
+local pingLabel = new("TextLabel", {Parent = pingRow, Text = "📶 Ping: -- ms", Font = Enum.Font.Gotham, TextSize = 13, TextColor3 = TXT, BackgroundTransparency = 1, Position = UDim2.new(0,12,0,0), Size = UDim2.new(1,-24,1,0), TextXAlignment = Enum.TextXAlignment.Left, TextYAlignment = Enum.TextYAlignment.Center})
+
+local sep = new("TextLabel", {Parent = serverScroll, Text = "────────── BOSS STATUS ──────────", Font = Enum.Font.Gotham, TextSize = 12, TextColor3 = MUTED, BackgroundTransparency = 1, Size = UDim2.new(1,0,0,24), TextXAlignment = Enum.TextXAlignment.Center})
+
+local kataRow = makeRow(serverScroll, 38)
+local kataLabel = new("TextLabel", {Parent = kataRow, Text = "🍩 Katakuri: ❌", Font = Enum.Font.Gotham, TextSize = 13, TextColor3 = TXT, BackgroundTransparency = 1, Position = UDim2.new(0,12,0,0), Size = UDim2.new(1,-24,1,0), TextXAlignment = Enum.TextXAlignment.Left, TextYAlignment = Enum.TextYAlignment.Center})
+
+local eliteRow = makeRow(serverScroll, 38)
+local eliteLabel = new("TextLabel", {Parent = eliteRow, Text = "👑 Elite Boss: ❌", Font = Enum.Font.Gotham, TextSize = 13, TextColor3 = TXT, BackgroundTransparency = 1, Position = UDim2.new(0,12,0,0), Size = UDim2.new(1,-24,1,0), TextXAlignment = Enum.TextXAlignment.Left, TextYAlignment = Enum.TextYAlignment.Center})
+
+local cakeRow = makeRow(serverScroll, 38)
+local cakeLabel = new("TextLabel", {Parent = cakeRow, Text = "🍰 Cake Prince: ❌", Font = Enum.Font.Gotham, TextSize = 13, TextColor3 = TXT, BackgroundTransparency = 1, Position = UDim2.new(0,12,0,0), Size = UDim2.new(1,-24,1,0), TextXAlignment = Enum.TextXAlignment.Left, TextYAlignment = Enum.TextYAlignment.Center})
+
+local mirageRow = makeRow(serverScroll, 38)
+local mirageLabel = new("TextLabel", {Parent = mirageRow, Text = "🏝️ Mirage Island: ❌", Font = Enum.Font.Gotham, TextSize = 13, TextColor3 = TXT, BackgroundTransparency = 1, Position = UDim2.new(0,12,0,0), Size = UDim2.new(1,-24,1,0), TextXAlignment = Enum.TextXAlignment.Left, TextYAlignment = Enum.TextYAlignment.Center})
+
+local ServerStatus = {Uptime = 0, StartTime = os.time(), Elite = false, CakePrince = false, MirageIsland = false, Katakuri = false}
+
+local function updateServerUI()
+    local h = math.floor(ServerStatus.Uptime / 3600)
+    local m = math.floor((ServerStatus.Uptime % 3600) / 60)
+    local s = ServerStatus.Uptime % 60
+    uptimeLabel.Text = string.format("⏱️ Uptime: %02d:%02d:%02d", h, m, s)
+    playersLabel.Text = "👥 Players: " .. #Players:GetPlayers() .. "/" .. game:GetService("Players").MaxPlayers
+    local ping = game:GetService("Stats").Network.ServerStatsItem.DataPing:GetValue()
+    pingLabel.Text = "📶 Ping: " .. math.floor(ping) .. " ms"
+end
+
+local function scanServerBosses()
+    ServerStatus.Elite = false
+    ServerStatus.CakePrince = false
+    ServerStatus.MirageIsland = false
+    ServerStatus.Katakuri = false
+    for _, obj in ipairs(Workspace:GetDescendants()) do
+        local name = obj.Name:lower()
+        if name:find("elite") or name:find("elite boss") then ServerStatus.Elite = true end
+        if name:find("cake prince") then ServerStatus.CakePrince = true end
+        if name:find("mirage") then ServerStatus.MirageIsland = true end
+        if name:find("katakuri") or name:find("dogtooth") then ServerStatus.Katakuri = true end
+    end
+    kataLabel.Text = "🍩 Katakuri: " .. (ServerStatus.Katakuri and "✅" or "❌")
+    kataLabel.TextColor3 = ServerStatus.Katakuri and SUCCESS or DANGER
+    eliteLabel.Text = "👑 Elite Boss: " .. (ServerStatus.Elite and "✅" or "❌")
+    eliteLabel.TextColor3 = ServerStatus.Elite and SUCCESS or DANGER
+    cakeLabel.Text = "🍰 Cake Prince: " .. (ServerStatus.CakePrince and "✅" or "❌")
+    cakeLabel.TextColor3 = ServerStatus.CakePrince and SUCCESS or DANGER
+    mirageLabel.Text = "🏝️ Mirage Island: " .. (ServerStatus.MirageIsland and "✅" or "❌")
+    mirageLabel.TextColor3 = ServerStatus.MirageIsland and SUCCESS or DANGER
+end
+
+task.spawn(function() while true do task.wait(1) ServerStatus.Uptime = os.time() - ServerStatus.StartTime updateServerUI() end end)
+task.spawn(function() while true do task.wait(10) scanServerBosses() end end)
+scanServerBosses()
+
+-- ========== TAB MAIN (WITH FARM BOSS INSIDE) ==========
+local mainPage = TabPages["Main"]
+local mainScroll = new("ScrollingFrame", {Parent = mainPage, Size = UDim2.new(1,-24,1,-24), Position = UDim2.new(0,12,0,12), BackgroundTransparency = 1, ScrollBarThickness = 6, CanvasSize = UDim2.new(0,0,0,0)})
+mainScroll.AutomaticCanvasSize = Enum.AutomaticSize.Y
+local mainLayout = new("UIListLayout", {Parent = mainScroll, Padding = UDim.new(0,12)})
+
+-- Main Farm Section
+local mainFarmFrame = new("Frame", {Parent = mainScroll, Size = UDim2.new(1,0,0,280), BackgroundColor3 = PANEL, BorderSizePixel = 0})
+new("UICorner", {Parent = mainFarmFrame, CornerRadius = UDim.new(0,10)})
+local leftPanel = makePanel(mainFarmFrame, 0)
+local rightPanel = makePanel(mainFarmFrame, 0.5)
+new("TextLabel", {Parent = leftPanel, Text = "🤖 MAIN FARM", Font = Enum.Font.GothamBold, TextSize = 14, TextColor3 = ACCENT, BackgroundTransparency = 1, Position = UDim2.new(0,12,0,10), Size = UDim2.new(1,-24,0,22), TextXAlignment = Enum.TextXAlignment.Left})
+new("TextLabel", {Parent = rightPanel, Text = "⚙️ SETTINGS", Font = Enum.Font.GothamBold, TextSize = 14, TextColor3 = ACCENT, BackgroundTransparency = 1, Position = UDim2.new(0,12,0,10), Size = UDim2.new(1,-24,0,22), TextXAlignment = Enum.TextXAlignment.Left})
+
+local leftScroll = new("ScrollingFrame", {Parent = leftPanel, Size = UDim2.new(1,-24,1,-46), Position = UDim2.new(0,12,0,40), BackgroundTransparency = 1, ScrollBarThickness = 4, CanvasSize = UDim2.new(0,0,0,0)})
+leftScroll.AutomaticCanvasSize = Enum.AutomaticSize.Y
+local leftLayout = new("UIListLayout", {Parent = leftScroll, Padding = UDim.new(0,8)})
+
+local rightScroll = new("ScrollingFrame", {Parent = rightPanel, Size = UDim2.new(1,-24,1,-46), Position = UDim2.new(0,12,0,40), BackgroundTransparency = 1, ScrollBarThickness = 4, CanvasSize = UDim2.new(0,0,0,0)})
+rightScroll.AutomaticCanvasSize = Enum.AutomaticSize.Y
+local rightLayout = new("UIListLayout", {Parent = rightScroll, Padding = UDim.new(0,8)})
+
+for _, name in ipairs({"Auto Farm Level", "Auto Farm Near Mob", "Auto Farm Bone", "Auto Respawn", "Auto Collect", "Auto Boost"}) do
+    makeToggle(leftScroll, name, false, function(v) print("[Main]", name, v) end)
+end
+
+makeSlider(rightScroll, "Distance Farm", 1, 50, 15, function(v) farmRange = v end)
+makeDropdown(rightScroll, "Method Farm", {"Above", "Behind", "Under"}, "Above", function(v) farmPosition = v end)
+makeDropdown(rightScroll, "Select Weapon", {"Melee", "Sword", "Gun", "Fruit"}, "Melee", function(v) print("Weapon:", v) end)
+makeToggle(rightScroll, "Fast Attack", true, function(v) print("Fast Attack:", v) end)
+makeToggle(rightScroll, "Auto Click M1", false, function(v) print("Auto Click M1:", v) end)
+for _, name in ipairs({"Auto Farm Boss", "Auto Track", "Auto Heal", "Auto Upgrade", "Auto Sell", "Auto Buy"}) do
+    makeToggle(rightScroll, name, false, function(v) print("[Main]", name, v) end)
+end
+
+-- Farm Boss Section (inside Main tab)
+local farmBossSection = new("Frame", {Parent = mainScroll, Size = UDim2.new(1,0,0,360), BackgroundColor3 = PANEL, BorderSizePixel = 0})
+new("UICorner", {Parent = farmBossSection, CornerRadius = UDim.new(0,10)})
+new("TextLabel", {Parent = farmBossSection, Text = "🎯 FARM BOSS", Font = Enum.Font.GothamBold, TextSize = 16, TextColor3 = ACCENT, BackgroundTransparency = 1, Position = UDim2.new(0,12,0,10), Size = UDim2.new(1,-24,0,24), TextXAlignment = Enum.TextXAlignment.Left})
+
+local farmLeftPanel = new("Frame", {Parent = farmBossSection, Size = UDim2.new(0.5,-12,1,-46), Position = UDim2.new(0,12,0,40), BackgroundColor3 = PANEL_ALT, BorderSizePixel = 0})
+new("UICorner", {Parent = farmLeftPanel, CornerRadius = UDim.new(0,10)})
+local farmRightPanel = new("Frame", {Parent = farmBossSection, Size = UDim2.new(0.5,-12,1,-46), Position = UDim2.new(0.5,6,0,40), BackgroundColor3 = PANEL_ALT, BorderSizePixel = 0})
+new("UICorner", {Parent = farmRightPanel, CornerRadius = UDim.new(0,10)})
+
+local farmLeftScroll = new("ScrollingFrame", {Parent = farmLeftPanel, Size = UDim2.new(1,-24,1,-24), Position = UDim2.new(0,12,0,12), BackgroundTransparency = 1, ScrollBarThickness = 4, CanvasSize = UDim2.new(0,0,0,0)})
+farmLeftScroll.AutomaticCanvasSize = Enum.AutomaticSize.Y
+local farmLeftLayout = new("UIListLayout", {Parent = farmLeftScroll, Padding = UDim.new(0,8)})
+
+local farmRightScroll = new("ScrollingFrame", {Parent = farmRightPanel, Size = UDim2.new(1,-24,1,-24), Position = UDim2.new(0,12,0,12), BackgroundTransparency = 1, ScrollBarThickness = 4, CanvasSize = UDim2.new(0,0,0,0)})
+farmRightScroll.AutomaticCanvasSize = Enum.AutomaticSize.Y
+local farmRightLayout = new("UIListLayout", {Parent = farmRightScroll, Padding = UDim.new(0,8)})
+
+local kataBtn = makeButton(farmLeftScroll, "🍩 FARM KATAKURI", SUCCESS, function()
+    if isFarmingBoss and bossFarmType == "katakuri" then
+        stopBossFarming()
+        kataBtn.BackgroundColor3 = SUCCESS
+        kataBtn:FindFirstChildOfClass("TextLabel").Text = "🍩 FARM KATAKURI"
+    else
+        if isFarmingBoss then stopBossFarming() end
+        startBossFarming("katakuri")
+        kataBtn.BackgroundColor3 = DANGER
+        kataBtn:FindFirstChildOfClass("TextLabel").Text = "🔴 FARMING KATAKURI"
+    end
+end)
+
+local eliteBtn = makeButton(farmLeftScroll, "👑 FARM ELITE", INFO_COLOR, function()
+    if isFarmingBoss and bossFarmType == "elite" then
+        stopBossFarming()
+        eliteBtn.BackgroundColor3 = INFO_COLOR
+        eliteBtn:FindFirstChildOfClass("TextLabel").Text = "👑 FARM ELITE"
+    else
+        if isFarmingBoss then stopBossFarming() end
+        startBossFarming("elite")
+        eliteBtn.BackgroundColor3 = DANGER
+        eliteBtn:FindFirstChildOfClass("TextLabel").Text = "🔴 FARMING ELITE"
+    end
+end)
+
+makeButton(farmLeftScroll, "🛑 STOP ALL", DANGER, function()
+    stopBossFarming()
+    kataBtn.BackgroundColor3 = SUCCESS
+    kataBtn:FindFirstChildOfClass("TextLabel").Text = "🍩 FARM KATAKURI"
+    eliteBtn.BackgroundColor3 = INFO_COLOR
+    eliteBtn:FindFirstChildOfClass("TextLabel").Text = "👑 FARM ELITE"
+end)
+
+makeSlider(farmLeftScroll, "Boss Distance", 10, 500, 100, function(v) bossFarmRange = v end)
+makeDropdown(farmLeftScroll, "Boss Position", {"Above", "Behind", "Under"}, "Above", function(v) bossFarmPosition = v end)
+
+local bossStatus = new("TextLabel", {Parent = farmRightScroll, Text = "Status: Idle", Font = Enum.Font.Gotham, TextSize = 13, TextColor3 = TXT, BackgroundColor3 = Color3.fromRGB(38,38,38), Size = UDim2.new(1,0,0,36)})
+new("UICorner", {Parent = bossStatus, CornerRadius = UDim.new(0,8)})
+
+local kataStatus = new("TextLabel", {Parent = farmRightScroll, Text = "🍩 Katakuri: Scanning...", Font = Enum.Font.Gotham, TextSize = 12, TextColor3 = TXT, BackgroundColor3 = Color3.fromRGB(38,38,38), Size = UDim2.new(1,0,0,32)})
+new("UICorner", {Parent = kataStatus, CornerRadius = UDim.new(0,8)})
+
+local eliteStatus = new("TextLabel", {Parent = farmRightScroll, Text = "👑 Elite: Scanning...", Font = Enum.Font.Gotham, TextSize = 12, TextColor3 = TXT, BackgroundColor3 = Color3.fromRGB(38,38,38), Size = UDim2.new(1,0,0,32)})
+new("UICorner", {Parent = eliteStatus, CornerRadius = UDim.new(0,8)})
+
+makeButton(farmRightScroll, "🔍 SCAN BOSS", ACCENT, function() scanForBosses() end)
+
+task.spawn(function()
+    while true do
+        task.wait(0.5)
+        if isFarmingBoss then
+            bossStatus.Text = "Status: 🔴 FARMING " .. string.upper(bossFarmType)
+            bossStatus.TextColor3 = SUCCESS
+        else
+            bossStatus.Text = "Status: ⚪ Idle"
+            bossStatus.TextColor3 = MUTED
+        end
+        local kata = findKatakuri()
+        local elite = findElite()
+        if kata then
+            kataStatus.Text = string.format("🍩 Katakuri: ✅ (%.0f, %.0f, %.0f)", kata.Position.X, kata.Position.Y, kata.Position.Z)
+            kataStatus.TextColor3 = SUCCESS
+        else
+            kataStatus.Text = "🍩 Katakuri: ❌ Not found"
+            kataStatus.TextColor3 = DANGER
+        end
+        if elite then
+            eliteStatus.Text = string.format("👑 Elite: ✅ (%.0f, %.0f, %.0f)", elite.Position.X, elite.Position.Y, elite.Position.Z)
+            eliteStatus.TextColor3 = SUCCESS
+        else
+            eliteStatus.Text = "👑 Elite: ❌ Not found"
+            eliteStatus.TextColor3 = DANGER
+        end
+    end
+end)
+
+-- ========== TAB SETTING ==========
+local settingPage = TabPages["Setting"]
+local settingLeft = makePanel(settingPage, 0)
+local settingRight = makePanel(settingPage, 0.5)
+local settingLeftScroll = new("ScrollingFrame", {Parent = settingLeft, Size = UDim2.new(1,-24,1,-46), Position = UDim2.new(0,12,0,40), BackgroundTransparency = 1, ScrollBarThickness = 4, CanvasSize = UDim2.new(0,0,0,0)})
+settingLeftScroll.AutomaticCanvasSize = Enum.AutomaticSize.Y
+local settingRightScroll = new("ScrollingFrame", {Parent = settingRight, Size = UDim2.new(1,-24,1,-46), Position = UDim2.new(0,12,0,40), BackgroundTransparency = 1, ScrollBarThickness = 4, CanvasSize = UDim2.new(0,0,0,0)})
+settingRightScroll.AutomaticCanvasSize = Enum.AutomaticSize.Y
+local settingLeftLayout = new("UIListLayout", {Parent = settingLeftScroll, Padding = UDim.new(0,8)})
+local settingRightLayout = new("UIListLayout", {Parent = settingRightScroll, Padding = UDim.new(0,8)})
+new("TextLabel", {Parent = settingLeft, Text = "⚙️ GENERAL", Font = Enum.Font.GothamBold, TextSize = 14, TextColor3 = ACCENT, BackgroundTransparency = 1, Position = UDim2.new(0,12,0,10), Size = UDim2.new(1,-24,0,22), TextXAlignment = Enum.TextXAlignment.Left})
+new("TextLabel", {Parent = settingRight, Text = "🔧 ADVANCED", Font = Enum.Font.GothamBold, TextSize = 14, TextColor3 = ACCENT, BackgroundTransparency = 1, Position = UDim2.new(0,12,0,10), Size = UDim2.new(1,-24,0,22), TextXAlignment = Enum.TextXAlignment.Left})
+for _, name in ipairs({"Auto Save Config", "Notify When Done", "UI Sound", "Low Graphics Mode", "FPS Cap", "Anti AFK", "Skip Cutscene"}) do
+    makeToggle(settingLeftScroll, name, false, function(v) print("[Setting]", name, v) end)
+end
+for _, name in ipairs({"Auto Rejoin", "Hide Other Players", "Optimize Network", "Auto Update", "Silent Mode", "Debug Mode"}) do
+    makeToggle(settingRightScroll, name, false, function(v) print("[Setting]", name, v) end)
+end
+makeSlider(settingRightScroll, "Camera Sensitivity", 1, 10, 5, function(v) print("Sensitivity:", v) end)
+
+-- ========== TAB FRUIT AND RAID ==========
+local fruitPage = TabPages["Fruit and Raid"]
+local fruitLeft = makePanel(fruitPage, 0)
+local fruitRight = makePanel(fruitPage, 0.5)
+local fruitLeftScroll = new("ScrollingFrame", {Parent = fruitLeft, Size = UDim2.new(1,-24,1,-46), Position = UDim2.new(0,12,0,40), BackgroundTransparency = 1, ScrollBarThickness = 4, CanvasSize = UDim2.new(0,0,0,0)})
+fruitLeftScroll.AutomaticCanvasSize = Enum.AutomaticSize.Y
+local fruitRightScroll = new("ScrollingFrame", {Parent = fruitRight, Size = UDim2.new(1,-24,1,-46), Position = UDim2.new(0,12,0,40), BackgroundTransparency = 1, ScrollBarThickness = 4, CanvasSize = UDim2.new(0,0,0,0)})
+fruitRightScroll.AutomaticCanvasSize = Enum.AutomaticSize.Y
+local fruitLeftLayout = new("UIListLayout", {Parent = fruitLeftScroll, Padding = UDim.new(0,8)})
+local fruitRightLayout = new("UIListLayout", {Parent = fruitRightScroll, Padding = UDim.new(0,8)})
+new("TextLabel", {Parent = fruitLeft, Text = "🍎 FRUIT", Font = Enum.Font.GothamBold, TextSize = 14, TextColor3 = ACCENT, BackgroundTransparency = 1, Position = UDim2.new(0,12,0,10), Size = UDim2.new(1,-24,0,22), TextXAlignment = Enum.TextXAlignment.Left})
+new("TextLabel", {Parent = fruitRight, Text = "⚔️ RAID", Font = Enum.Font.GothamBold, TextSize = 14, TextColor3 = ACCENT, BackgroundTransparency = 1, Position = UDim2.new(0,12,0,10), Size = UDim2.new(1,-24,0,22), TextXAlignment = Enum.TextXAlignment.Left})
+for _, name in ipairs({"Auto Farm Fruit", "Auto Eat Fruit", "Auto Store Fruit", "Fruit Notifier", "Spawn Fruit", "Fruit ESP"}) do
+    makeToggle(fruitLeftScroll, name, false, function(v) print("[Fruit]", name, v) end)
+end
+makeDropdown(fruitLeftScroll, "Select Fruit", {"Random", "Buddha", "Magma", "Ice", "Dragon", "Leopard"}, "Random", function(v) print("Fruit:", v) end)
+for _, name in ipairs({"Auto Raid", "Auto Awaken", "Auto Buy Chip", "Auto Start Raid", "Raid ESP", "Raid Farm All"}) do
+    makeToggle(fruitRightScroll, name, false, function(v) print("[Raid]", name, v) end)
+end
+makeSlider(fruitRightScroll, "Raid Difficulty", 1, 5, 3, function(v) print("Raid Difficulty:", v) end)
+
+-- ========== TAB SEA EVENT ==========
+local seaPage = TabPages["Sea Event"]
+local seaLeft = makePanel(seaPage, 0)
+local seaRight = makePanel(seaPage, 0.5)
+local seaLeftScroll = new("ScrollingFrame", {Parent = seaLeft, Size = UDim2.new(1,-24,1,-46), Position = UDim2.new(0,12,0,40), BackgroundTransparency = 1, ScrollBarThickness = 4, CanvasSize = UDim2.new(0,0,0,0)})
+seaLeftScroll.AutomaticCanvasSize = Enum.AutomaticSize.Y
+local seaRightScroll = new("ScrollingFrame", {Parent = seaRight, Size = UDim2.new(1,-24,1,-46), Position = UDim2.new(0,12,0,40), BackgroundTransparency = 1, ScrollBarThickness = 4, CanvasSize = UDim2.new(0,0,0,0)})
+seaRightScroll.AutomaticCanvasSize = Enum.AutomaticSize.Y
+local seaLeftLayout = new("UIListLayout", {Parent = seaLeftScroll, Padding = UDim.new(0,8)})
+local seaRightLayout = new("UIListLayout", {Parent = seaRightScroll, Padding = UDim.new(0,8)})
+new("TextLabel", {Parent = seaLeft, Text = "🌊 SEA EVENT", Font = Enum.Font.GothamBold, TextSize = 14, TextColor3 = ACCENT, BackgroundTransparency = 1, Position = UDim2.new(0,12,0,10), Size = UDim2.new(1,-24,0,22), TextXAlignment = Enum.TextXAlignment.Left})
+new("TextLabel", {Parent = seaRight, Text = "⚓ AUTO FARM", Font = Enum.Font.GothamBold, TextSize = 14, TextColor3 = ACCENT, BackgroundTransparency = 1, Position = UDim2.new(0,12,0,10), Size = UDim2.new(1,-24,0,22), TextXAlignment = Enum.TextXAlignment.Left})
+for _, name in ipairs({"Auto Sea Beast", "Auto Ship", "Auto Factory", "Auto Marine", "Auto Pirate", "Auto Ship Loot"}) do
+    makeToggle(seaLeftScroll, name, false, function(v) print("[SeaEvent]", name, v) end)
+end
+for _, name in ipairs({"Auto Kraken", "Auto Rumble", "Auto Find Boss", "Auto Collect Chest", "Sea Event ESP", "Auto Teleport"}) do
+    makeToggle(seaRightScroll, name, false, function(v) print("[SeaEvent]", name, v) end)
+end
+makeSlider(seaRightScroll, "Sea Event Range", 100, 2000, 500, function(v) print("Sea Range:", v) end)
+
+-- ========== TAB RACE ==========
+local racePage = TabPages["Race"]
+local raceLeft = makePanel(racePage, 0)
+local raceRight = makePanel(racePage, 0.5)
+local raceLeftScroll = new("ScrollingFrame", {Parent = raceLeft, Size = UDim2.new(1,-24,1,-46), Position = UDim2.new(0,12,0,40), BackgroundTransparency = 1, ScrollBarThickness = 4, CanvasSize = UDim2.new(0,0,0,0)})
+raceLeftScroll.AutomaticCanvasSize = Enum.AutomaticSize.Y
+local raceRightScroll = new("ScrollingFrame", {Parent = raceRight, Size = UDim2.new(1,-24,1,-46), Position = UDim2.new(0,12,0,40), BackgroundTransparency = 1, ScrollBarThickness = 4, CanvasSize = UDim2.new(0,0,0,0)})
+raceRightScroll.AutomaticCanvasSize = Enum.AutomaticSize.Y
+local raceLeftLayout = new("UIListLayout", {Parent = raceLeftScroll, Padding = UDim.new(0,8)})
+local raceRightLayout = new("UIListLayout", {Parent = raceRightScroll, Padding = UDim.new(0,8)})
+new("TextLabel", {Parent = raceLeft, Text = "🧬 RACE", Font = Enum.Font.GothamBold, TextSize = 14, TextColor3 = ACCENT, BackgroundTransparency = 1, Position = UDim2.new(0,12,0,10), Size = UDim2.new(1,-24,0,22), TextXAlignment = Enum.TextXAlignment.Left})
+new("TextLabel", {Parent = raceRight, Text = "⚡ UPGRADE", Font = Enum.Font.GothamBold, TextSize = 14, TextColor3 = ACCENT, BackgroundTransparency = 1, Position = UDim2.new(0,12,0,10), Size = UDim2.new(1,-24,0,22), TextXAlignment = Enum.TextXAlignment.Left})
+for _, name in ipairs({"Auto Race", "Auto Spin", "Auto Select Race", "Auto Reroll", "Save Best Race", "Race ESP"}) do
+    makeToggle(raceLeftScroll, name, false, function(v) print("[Race]", name, v) end)
+end
+makeDropdown(raceLeftScroll, "Preferred Race", {"Human", "Fishman", "Skypiea", "Mink", "Cyborg", "Ghoul"}, "Human", function(v) print("Race:", v) end)
+for _, name in ipairs({"Auto V2", "Auto V3", "Auto V4", "Auto Ability", "Auto Train", "Auto Fragment Farm"}) do
+    makeToggle(raceRightScroll, name, false, function(v) print("[Race]", name, v) end)
+end
+makeSlider(raceRightScroll, "Race Farm Speed", 1, 10, 5, function(v) print("Race Speed:", v) end)
+
+-- ========== TAB SHOP ==========
+local shopPage = TabPages["Shop"]
+local shopLeft = makePanel(shopPage, 0)
+local shopRight = makePanel(shopPage, 0.5)
+local shopLeftScroll = new("ScrollingFrame", {Parent = shopLeft, Size = UDim2.new(1,-24,1,-46), Position = UDim2.new(0,12,0,40), BackgroundTransparency = 1, ScrollBarThickness = 4, CanvasSize = UDim2.new(0,0,0,0)})
+shopLeftScroll.AutomaticCanvasSize = Enum.AutomaticSize.Y
+local shopRightScroll = new("ScrollingFrame", {Parent = shopRight, Size = UDim2.new(1,-24,1,-46), Position = UDim2.new(0,12,0,40), BackgroundTransparency = 1, ScrollBarThickness = 4, CanvasSize = UDim2.new(0,0,0,0)})
+shopRightScroll.AutomaticCanvasSize = Enum.AutomaticSize.Y
+local shopLeftLayout = new("UIListLayout", {Parent = shopLeftScroll, Padding = UDim.new(0,8)})
+local shopRightLayout = new("UIListLayout", {Parent = shopRightScroll, Padding = UDim.new(0,8)})
+new("TextLabel", {Parent = shopLeft, Text = "🛒 BUY", Font = Enum.Font.GothamBold, TextSize = 14, TextColor3 = ACCENT, BackgroundTransparency = 1, Position = UDim2.new(0,12,0,10), Size = UDim2.new(1,-24,0,22), TextXAlignment = Enum.TextXAlignment.Left})
+new("TextLabel", {Parent = shopRight, Text = "💰 SELL", Font = Enum.Font.GothamBold, TextSize = 14, TextColor3 = ACCENT, BackgroundTransparency = 1, Position = UDim2.new(0,12,0,10), Size = UDim2.new(1,-24,0,22), TextXAlignment = Enum.TextXAlignment.Left})
+for _, name in ipairs({"Auto Buy Items", "Auto Buy Fruits", "Auto Buy Gamepass", "Auto Buy Accessories", "Auto Buy Boosts", "Auto Buy Stats"}) do
+    makeToggle(shopLeftScroll, name, false, function(v) print("[Shop]", name, v) end)
+end
+makeDropdown(shopLeftScroll, "Buy Fruit From Shop", {"Random", "Buddha", "Magma", "Ice"}, "Random", function(v) print("Buy Fruit:", v) end)
+for _, name in ipairs({"Auto Sell Fruits", "Auto Buy Potions", "Auto Buy Race Reroll", "Auto Buy Fragments", "Auto Buy Money"}) do
+    makeToggle(shopRightScroll, name, false, function(v) print("[Shop]", name, v) end)
+end
+makeSlider(shopRightScroll, "Auto Buy Amount", 1, 100, 10, function(v) print("Buy Amount:", v) end)
+
+-- ========== TAB PLAYER ==========
+local playerPage = TabPages["Player"]
+local playerLeft = makePanel(playerPage, 0)
+local playerRight = makePanel(playerPage, 0.5)
+local playerLeftScroll = new("ScrollingFrame", {Parent = playerLeft, Size = UDim2.new(1,-24,1,-46), Position = UDim2.new(0,12,0,40), BackgroundTransparency = 1, ScrollBarThickness = 4, CanvasSize = UDim2.new(0,0,0,0)})
+playerLeftScroll.AutomaticCanvasSize = Enum.AutomaticSize.Y
+local playerRightScroll = new("ScrollingFrame", {Parent = playerRight, Size = UDim2.new(1,-24,1,-46), Position = UDim2.new(0,12,0,40), BackgroundTransparency = 1, ScrollBarThickness = 4, CanvasSize = UDim2.new(0,0,0,0)})
+playerRightScroll.AutomaticCanvasSize = Enum.AutomaticSize.Y
+local playerLeftLayout = new("UIListLayout", {Parent = playerLeftScroll, Padding = UDim.new(0,8)})
+local playerRightLayout = new("UIListLayout", {Parent = playerRightScroll, Padding = UDim.new(0,8)})
+new("TextLabel", {Parent = playerLeft, Text = "👤 PLAYER", Font = Enum.Font.GothamBold, TextSize = 14, TextColor3 = ACCENT, BackgroundTransparency = 1, Position = UDim2.new(0,12,0,10), Size = UDim2.new(1,-24,0,22), TextXAlignment = Enum.TextXAlignment.Left})
+new("TextLabel", {Parent = playerRight, Text = "✨ EXTRA", Font = Enum.Font.GothamBold, TextSize = 14, TextColor3 = ACCENT, BackgroundTransparency = 1, Position = UDim2.new(0,12,0,10), Size = UDim2.new(1,-24,0,22), TextXAlignment = Enum.TextXAlignment.Left})
+for _, name in ipairs({"Infinite Stamina", "No Cooldown", "Auto Parry", "Auto Dodge"}) do
+    makeToggle(playerLeftScroll, name, false, function(v) print("[Player]", name, v) end)
+end
+makeSlider(playerLeftScroll, "Walk Speed", 16, 250, 16, function(v) if LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("Humanoid") then LocalPlayer.Character.Humanoid.WalkSpeed = v end end)
+makeSlider(playerLeftScroll, "Jump Power", 50, 300, 50, function(v) if LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("Humanoid") then LocalPlayer.Character.Humanoid.JumpPower = v end end)
+makeSlider(playerLeftScroll, "Gravity", -200, 500, 196, function(v) workspace.Gravity = v end)
+for _, name in ipairs({"Fly Hack", "Noclip", "No Fall Damage", "Anti Stun", "Auto Respawn Player", "Infinite Breath", "No Knockback", "Mob Aura"}) do
+    makeToggle(playerRightScroll, name, false, function(v) print("[Player]", name, v) end)
+end
+makeDropdown(playerRightScroll, "Respawn Location", {"Spawn Point", "Last Location", "Random Island", "Custom"}, "Spawn Point", function(v) print("Respawn:", v) end)
+makeDropdown(playerRightScroll, "Aura Type", {"Damage", "Knockback", "Pull", "Push", "Vacuum"}, "Damage", function(v) print("Aura:", v) end)
+local bringBtn = new("TextButton", {Parent = playerRightScroll, Size = UDim2.new(1,0,0,36), BackgroundColor3 = DANGER, Text = "Bring All Mobs To Me", Font = Enum.Font.GothamBold, TextSize = 13, TextColor3 = TXT, AutoButtonColor = false})
+new("UICorner", {Parent = bringBtn, CornerRadius = UDim.new(0,8)})
+bringBtn.MouseButton1Click:Connect(function() print("[Player] Bring All Mobs") end)
+local killBtn = new("TextButton", {Parent = playerRightScroll, Size = UDim2.new(1,0,0,36), BackgroundColor3 = DANGER, Text = "Kill All Mobs", Font = Enum.Font.GothamBold, TextSize = 13, TextColor3 = TXT, AutoButtonColor = false})
+new("UICorner", {Parent = killBtn, CornerRadius = UDim.new(0,8)})
+killBtn.MouseButton1Click:Connect(function() print("[Player] Kill All Mobs") end)
+
+-- ========== TAB TELEPORT ==========
+local teleportPage = TabPages["Teleport"]
+local teleLeft = makePanel(teleportPage, 0)
+local teleRight = makePanel(teleportPage, 0.5)
+local teleLeftScroll = new("ScrollingFrame", {Parent = teleLeft, Size = UDim2.new(1,-24,1,-46), Position = UDim2.new(0,12,0,40), BackgroundTransparency = 1, ScrollBarThickness = 4, CanvasSize = UDim2.new(0,0,0,0)})
+teleLeftScroll.AutomaticCanvasSize = Enum.AutomaticSize.Y
+local teleRightScroll = new("ScrollingFrame", {Parent = teleRight, Size = UDim2.new(1,-24,1,-46), Position = UDim2.new(0,12,0,40), BackgroundTransparency = 1, ScrollBarThickness = 4, CanvasSize = UDim2.new(0,0,0,0)})
+teleRightScroll.AutomaticCanvasSize = Enum.AutomaticSize.Y
+local teleLeftLayout = new("UIListLayout", {Parent = teleLeftScroll, Padding = UDim.new(0,8)})
+local teleRightLayout = new("UIListLayout", {Parent = teleRightScroll, Padding = UDim.new(0,8)})
+new("TextLabel", {Parent = teleLeft, Text = "📍 QUICK TP", Font = Enum.Font.GothamBold, TextSize = 14, TextColor3 = ACCENT, BackgroundTransparency = 1, Position = UDim2.new(0,12,0,10), Size = UDim2.new(1,-24,0,22), TextXAlignment = Enum.TextXAlignment.Left})
+new("TextLabel", {Parent = teleRight, Text = "🗺️ ISLAND TP", Font = Enum.Font.GothamBold, TextSize = 14, TextColor3 = ACCENT, BackgroundTransparency = 1, Position = UDim2.new(0,12,0,10), Size = UDim2.new(1,-24,0,22), TextXAlignment = Enum.TextXAlignment.Left})
+
+makeButton(teleLeftScroll, "🌊 Teleport Sea 1", SEA1_COLOR, function() teleportTo(Vector3.new(-1250, 80, 3300)) end)
+makeButton(teleLeftScroll, "🌊 Teleport Sea 2", SEA2_COLOR, function() teleportTo(Vector3.new(6500, 80, 500)) end)
+makeButton(teleLeftScroll, "🌊 Teleport Sea 3", SEA3_COLOR, function() teleportTo(Vector3.new(-12500, 200, -500)) end)
+makeButton(teleLeftScroll, "🏝️ Teleport Spawn", SUCCESS, function() teleportTo(Vector3.new(0, 80, 0)) end)
+
+local islandNames = {"Scanning map..."}
+local selectedIsland = nil
+local islandPosMap = {}
+
+local islandDropdown = makeDropdown(teleRightScroll, "Select Island", islandNames, "Scanning...", function(v) selectedIsland = v end)
+
+local function updateIslandDropdown()
+    if #IslandList > 0 then
+        islandNames = {}
+        islandPosMap = {}
+        for _, island in ipairs(IslandList) do
+            local name = island.Name .. " [" .. island.Sea .. "]"
+            table.insert(islandNames, name)
+            islandPosMap[name] = island.Position
+        end
+    end
+end
+
+makeButton(teleRightScroll, "🔄 Scan Map", INFO_COLOR, function()
+    scanMap()
+    updateIslandDropdown()
+end)
+
+makeButton(teleRightScroll, "✨ Teleport to Island", ACCENT, function()
+    if selectedIsland and islandPosMap[selectedIsland] then
+        teleportTo(islandPosMap[selectedIsland])
+    end
+end)
+
+local posLabel = new("TextLabel", {Parent = teleportPage, Text = "📍 Current Position: --", Font = Enum.Font.Gotham, TextSize = 11, TextColor3 = MUTED, BackgroundTransparency = 1, Position = UDim2.new(0,12,1,-28), Size = UDim2.new(1,-24,0,20), TextXAlignment = Enum.TextXAlignment.Left})
+RunService.Heartbeat:Connect(function()
+    local pos = getCurrentPosition()
+    posLabel.Text = string.format("📍 Current Position: (%.0f, %.0f, %.0f)", pos.X, pos.Y, pos.Z)
+end)
+
+-- ========== FINAL SETUP ==========
+local function updateCanvases()
+    tabScroller.CanvasSize = UDim2.new(0, tabListLayout.AbsoluteContentSize.X + 16, 0, 0)
+end
+tabListLayout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(updateCanvases)
+RunService.Heartbeat:Connect(updateCanvases)
+updateCanvases()
+
+setActiveTab("Info")
+
+-- Drag window
+do
+    local dragging, dragStart, startPos
+    header.InputBegan:Connect(function(i)
+        if i.UserInputType == Enum.UserInputType.MouseButton1 then
+            dragging = true
+            dragStart = i.Position
+            startPos = window.Position
+            i.Changed:Connect(function() if i.UserInputState == Enum.UserInputState.End then dragging = false end end)
+        end
+    end)
+    UserInputService.InputChanged:Connect(function(i)
+        if dragging and i.UserInputType == Enum.UserInputType.MouseMovement then
+            local delta = i.Position - dragStart
+            window.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
+        end
+    end)
+end
+
+-- Collapse
+local collapsed = false
+btnCollapse.MouseButton1Click:Connect(function()
+    if collapsed then
+        TweenService:Create(window, TweenInfo.new(0.14), {Size = UDim2.fromOffset(500,320)}):Play()
+        for _,v in pairs(window:GetChildren()) do v.Visible = true end
+        header.Visible = true
+        collapsed = false
+        wait(0.02)
+        setActiveTab(currentTab or "Info")
+    else
+        for _,v in pairs(content:GetChildren()) do v.Visible = false end
+        TweenService:Create(window, TweenInfo.new(0.12), {Size = UDim2.fromOffset(500,48)}):Play()
+        collapsed = true
+    end
+end)
+
+-- Toggle menu
+local menuVisible = true
+toggleButton.MouseButton1Click:Connect(function()
+    menuVisible = not menuVisible
+    window.Visible = menuVisible
+end)
+
+-- Intro animation
+window.Position = UDim2.new(0.5, -250, 0.5, -180)
+window.BackgroundTransparency = 1
+TweenService:Create(window, TweenInfo.new(0.18), {BackgroundTransparency = 0}):Play()
+TweenService:Create(window, TweenInfo.new(0.18), {Position = UDim2.new(0.5,-250,0.5,-160)}):Play()
+
+print("NducHub Vision 1.3 - Blue Edition Loaded!")
+print("Tabs: Info, Status Server, Main, Setting, Fruit and Raid, Sea Event, Race, Shop, Player, Teleport")
